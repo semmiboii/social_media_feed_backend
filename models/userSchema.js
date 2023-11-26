@@ -2,12 +2,10 @@ const mongoose = require("mongoose");
 const { postSchema } = require("./postSchema");
 
 const userSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId },
-  username: { type: String, required: true },
-  name: { type: String, requrired: true },
-  mail: { type: String, required: true },
-  password: { type: String },
-  userImg: { type: String },
+  username: { type: String, unique: true },
+  name: { type: String,  unique: true },
+  email: { type: String, required: true },
+  password: { type: String, required: true },
   posts: { type: [postSchema] },
 });
 

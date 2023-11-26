@@ -1,14 +1,13 @@
 const mongoose = require("mongoose");
 
 const postSchema = new mongoose.Schema({
-  postId: { type: mongoose.Schema.Types.ObjectId },
   userId: { type: mongoose.Schema.Types.ObjectId },
-  private: { type: Boolean },
-  image: { type: String },
+  author: { type: String, requried: true },
+  private: { type: Boolean, default: false },
   title: { type: String },
-  content: { type: String },
+  description: { type: String },
   comments: { type: [String] },
-  like: { type: Boolean },
+  like: { type: Boolean, default: false },
   timestamp: { type: Date, default: Date.now },
 });
 
