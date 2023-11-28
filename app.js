@@ -1,7 +1,8 @@
-var connectToDB = require("./utils/dbconnect");
-var express = require("express");
-var mongoose = require("mongoose");
-var cors = require("cors");
+const connectToDB = require("./utils/dbconnect");
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const bcrypt = require("bcrypt");
 
 const Post = require("./models/postSchema");
 const User = require("./models/userSchema");
@@ -70,36 +71,37 @@ app.get("/post/:postId", async (req, res) => {
   }
 });
 
+app.get("/post/:postId/:userId/like", async (req, res) => {
+  try {
+    const existingPost = await Post.findById(req.params.postId);
+
+    if (!existingPost) {
+      return res.status(404).send({ message: "Post Not Found" });
+    }
+
+    if (existingPost.likes.includes(req.params.userId)) {
+      res.status(200).send(true);
+    } else {
+      res.status(200).send(false);
+    }
+  } catch (err) {
+    res.status(500).send({ message: err.message });
+  }
+});
+
 app.get("/post/:postId/likes", async (req, res) => {
   try {
     const existingPost = await Post.findById(req.params.postId);
+
+    if (!existingPost) {
+      return res.status(404).send({ message: "Post Not Found" });
+    }
+
     const likesCount = existingPost.likes.length;
 
     res.status(200).send({ likeCount: likesCount });
   } catch (err) {
-    res.status(404).send({ message: err.message });
-  }
-});
-
-app.post("/post/:postId", async (req, res) => {
-  try {
-    const paramsPostId = req.params.postId;
-    const body = await req.body;
-
-    const newComment = new Comment({
-      postId: paramsPostId,
-      userId: body.userId,
-      author: body.author,
-      comment: body.comment,
-    });
-
-    const data = await newComment.save();
-
-    if (data) {
-      res.status(200).send(data);
-    }
-  } catch (error) {
-    res.status(404).send({ message: error.message });
+    res.status(500).send({ message: err.message });
   }
 });
 
@@ -111,20 +113,21 @@ app.patch("/post/:userId/:postId", async (req, res) => {
       return res.status(404).send({ message: "Post Not Found" });
     }
 
-    existingPost.like = !existingPost.like;
+    const userId = req.params.userId;
 
-    const userIdIndex = existingPost.likes.indexOf(req.params.userId);
+    const userLiked = existingPost.likes.includes(userId);
+    const userLikedIndex = existingPost.likes.indexOf(userId);
 
-    if (userIdIndex === -1) {
-      existingPost.likes.push(req.params.userId);
+    if (!userLiked) {
+      existingPost.likes.push(userId);
     } else {
-      existingPost.likes.splice(userIdIndex, 1);
+      existingPost.likes.splice(userLikedIndex, 1);
     }
 
     const updatedPost = await existingPost.save();
 
     if (updatedPost) {
-      res.send({ message: "SUCCESS" });
+      res.send({ message: "SUCCESS", updatedPost });
     } else {
       res.status(500).send({ message: "Failed To Update Post" });
     }
@@ -146,7 +149,30 @@ app.get("/:postId/comments", async (req, res) => {
   }
 });
 
+app.post("/post/:postId", async (req, res) => {
+  try {
+    const paramsPostId = req.params.postId;
+    const body = req.body;
+
+    const newComment = new Comment({
+      postId: paramsPostId,
+      userId: body.userId,
+      author: body.author,
+      comment: body.comment,
+    });
+
+    const data = await newComment.save();
+
+    if (data) {
+      res.status(200).send(data);
+    }
+  } catch (error) {
+    res.status(404).send({ message: error.message });
+  }
+});
+
 // User REST APIs
+
 app.get("/user/:userId", async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -161,49 +187,57 @@ app.get("/user/:userId", async (req, res) => {
   }
 });
 
-app.post("/user", async (req, res) => {
+app.post("/user/login", async (req, res) => {
   try {
-    const userInfo = req.body;
+    const { email, password } = req.body;
 
-    const user = await User.findOne({
-      email: userInfo.email,
-    }).exec();
+    const userExists = await User.findOne({ email }).exec();
 
-    if (user.password === userInfo.password) {
-      res.status(200).send({ userId: user._id, userName: user.name });
-    } else {
-      res.status(404).send({ error: error.message });
+    if (!userExists) {
+      return res.status(401).send({ error: "INVALID_CREDENTIALS" });
     }
+
+    const isPasswordValid = bcrypt.compare(password, userExists.password);
+
+    if (!isPasswordValid) {
+      return res.status(401).send({ error: "INVALID_CREDENTIALS" });
+    }
+
+    res.status(200).send({ userId: userExists._id, userName: userExists.name });
   } catch (error) {
-    res.status(404).send(error);
+    res.status(500).send({ error: "INTERNAL_SERVER_ERROR" });
   }
 });
 
 app.post("/user/new", async (req, res) => {
   try {
-    const userInfo = await req.body;
+    const userInfo = req.body;
+
+    const hashedPassword = await bcrypt.hash(
+      userInfo.password,
+      parseInt(process.env.BCRYPT_SALT_ROUNDS)
+    );
 
     const userExists = await User.findOne({
-      username: userInfo.username,
-      email: userInfo.email,
-      password: userInfo.password,
+      $or: [{ username: userInfo.username }, { email: userInfo.email }],
     }).exec();
 
-    if (!userExists) {
-      const newUser = new User({
-        username: userInfo.username,
-        name: userInfo.name,
-        email: userInfo.email,
-        password: userInfo.password,
-      });
-
-      const data = await newUser.save();
-      res.send(data);
-    } else {
-      res.status(404).send({ error: "USER_ALREADY_EXISTS" });
+    if (userExists) {
+      return res.status(409).send({ error: "USER_ALREADY_EXISTS" });
     }
+
+    const newUser = new User({
+      username: userInfo.username,
+      name: userInfo.name,
+      email: userInfo.email,
+      password: hashedPassword,
+    });
+
+    const savedUser = await newUser.save();
+
+    res.status(201).send(savedUser);
   } catch (err) {
-    res.status({ message: err.message });
+    res.status(500).send({ error: err.message });
   }
 });
 
