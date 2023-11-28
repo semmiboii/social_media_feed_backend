@@ -17,6 +17,10 @@ app.use(cors());
 
 connectToDB();
 
+app.get("/", (req, res) => {
+  res.send({ message: "BACKEND_ACTIVE" });
+});
+
 // Post REST APIs
 
 app.get("/posts", async (req, res) => {
